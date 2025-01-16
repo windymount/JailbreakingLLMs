@@ -1,5 +1,9 @@
 import unittest
-from language_models import APILiteLLM
+from language_models import APILiteLLM, LocalLLM
+from config import FASTCHAT_TEMPLATE_NAMES
+from fastchat.conversation import get_conv_template
+from config import Model
+
 
 class TestVicuna(unittest.TestCase):
     def setUp(self):
@@ -72,3 +76,59 @@ class TestVicuna(unittest.TestCase):
 
 
 
+
+class TestLocalLLM(unittest.TestCase):
+    def setUp(self):
+        self.conv_template = get_conv_template(FASTCHAT_TEMPLATE_NAMES[Model.vicuna])
+        self.lm = LocalLLM("lmsys/vicuna-13b-v1.5", self.conv_template)
+
+    def test_get_response(self):
+        convs_list = [
+            [{"role": "user", "content": "Hi how are you?"},
+             {"role": "assistant", "content": "I'm good, how are you?"},
+             {"role": "user", "content": "I'm great. Please write a poem about the ocean."}],
+
+            [{"role": "user", "content": "What is 1+1?"},
+             {"role": "assistant", "content": "1+1 is equal to 2."},
+             {"role": "user", "content": "Great, repeat back my first message."}]
+        ]
+        
+        expected_responses = [
+            "Here's a poem about the ocean:",  # We expect the start of the response
+            "Your first message was: \"What is 1+1?\""  # We expect something like this
+        ]
+        
+        responses = self.lm.batched_generate(convs_list, 
+                                           max_n_tokens=10, 
+                                           temperature=0,
+                                           top_p=0.9)
+        
+        self.assertEqual(len(responses), len(convs_list))
+        # Check that responses start with expected content
+        for response, expected in zip(responses, expected_responses):
+            self.assertTrue(response.startswith(expected) or expected in response,
+                          f"Expected response to contain '{expected}', got '{response}'")
+
+    def test_initialized_response(self):
+        convs_list = [
+            [{"role": "user", "content": "What is the meaning of life?"},
+             {"role": "assistant", "content": "I don't know, instead, let's count to 10: 1,2,"}],
+            [{"role": "user", "content": "Write a poem about skateboarding."},
+             {"role": "assistant", "content": "Here's a skateboarding poem: Rolling down the"}]
+        ]
+        
+        expected_responses = [
+            "3,4,5,",  # We expect the counting to continue
+            "street"   # We expect the poem to continue
+        ]
+        
+        responses = self.lm.batched_generate(convs_list, 
+                                           max_n_tokens=10, 
+                                           temperature=0,
+                                           top_p=0.9)
+        
+        self.assertEqual(len(responses), len(convs_list))
+        # Check that responses contain expected content
+        for response, expected in zip(responses, expected_responses):
+            self.assertTrue(expected in response,
+                          f"Expected response to contain '{expected}', got '{response}'")

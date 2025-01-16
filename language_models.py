@@ -1,6 +1,10 @@
-import os 
+import os
+
+import torch
+from gcg.string_utils import load_model_and_tokenizer
+from transformers import GenerationConfig
 import litellm
-from config import TOGETHER_MODEL_NAMES, LITELLM_TEMPLATES, API_KEY_NAMES, Model
+from config import TOGETHER_MODEL_NAMES, LITELLM_TEMPLATES, API_KEY_NAMES, Model, HF_MODEL_NAMES
 from loggers import logger
 from common import get_api_key
 
@@ -86,7 +90,68 @@ class APILiteLLM(LanguageModel):
         )
         
         responses = [output["choices"][0]["message"].content for output in outputs]
+        return responses
 
+
+class LocalLLM():
+    """
+    Class for loading and running inference on local language models.
+    Uses HuggingFace models and tokenizers for local inference.
+    """
+    def __init__(self, model_name: str, conv_template):
+        self.model_name = model_name
+        self.use_open_source_model = True
+        self.model, self.tokenizer = load_model_and_tokenizer(model_name, 
+                                                            low_cpu_mem_usage=True,
+                                                            use_cache=False)
+        self.conv_template = conv_template
+        self.post_message = ""
+
+    def batched_generate(self, convs_list: list[list[dict]], 
+                        max_n_tokens: int,
+                        temperature: float,
+                        top_p: float,
+                        extra_eos_tokens: list[str] = None) -> list[str]:
+        """
+        Generate responses for a batch of conversations using local model inference.
+        
+        Args:
+            convs_list: List of conversation histories in OpenAI message format
+            max_n_tokens: Maximum number of tokens to generate
+            temperature: Sampling temperature 
+            top_p: Top-p sampling parameter
+            extra_eos_tokens: Additional end-of-sequence tokens to stop on
+            
+        Returns:
+            List of generated response strings
+        """
+        gen_config = self.model.generation_config
+        gen_config.max_new_tokens = 100
+        # Process each conversation and generate
+        responses = []
+        for conv in convs_list:
+            # Format conversation into single string
+            self.conv_template.messages = []
+            for message in conv:
+                self.conv_template.append_message(message["role"], message["content"])
+            prompt = self.conv_template.get_prompt()
+            # Tokenize
+            input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids
+            input_ids = input_ids.to(self.model.device)
+            
+            # Generate
+            with torch.no_grad():
+                output_ids = self.model.generate(
+                    input_ids,
+                    attention_mask=torch.ones_like(input_ids),
+                    generation_config=gen_config,
+                    pad_token_id=self.tokenizer.pad_token_id
+                )[0]
+            
+            # Decode response (remove prompt)
+            response = self.tokenizer.decode(output_ids[input_ids.shape[1]:])
+            responses.append(response)
+            
         return responses
 
 # class LocalvLLM(LanguageModel):
