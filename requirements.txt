@@ -1,0 +1,8 @@
+fschat==0.2.36
+gcg==0.2.0
+jailbreakbench==1.0.0
+litellm==1.58.2
+pandas==2.2.3
+psutil==6.1.1
+torch==2.4.0
+transformers==4.44.0
